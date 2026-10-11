@@ -48,7 +48,7 @@ router.post('/', asyncHandler(async (req, res) => {
   const additionalCharges = Math.max(0, Number(req.body.additionalCharges || 0));
   const grandTotal = money(items.reduce((s, i) => s + i.lineTotal, 0) + additionalCharges);
   const savedSettings = await AppSettings.findOne({ key: 'owner' }).lean();
-  const bankDetails = savedSettings ? { bankAccountHolder: savedSettings.bankAccountHolder || '', bankName: savedSettings.bankName || '', accountNumber: savedSettings.accountNumber || '', ifscCode: savedSettings.ifscCode || '', branch: savedSettings.branch || '', upiId: savedSettings.upiId || '', paymentInstructions: savedSettings.paymentInstructions || '' } : {};
+  const bankDetails = savedSettings ? { businessName: savedSettings.businessName || '', businessAddress: savedSettings.businessAddress || '', businessPhone: savedSettings.businessPhone || '', businessEmail: savedSettings.businessEmail || '', businessWebsite: savedSettings.businessWebsite || '', logoDataUrl: savedSettings.logoDataUrl || '', bankAccountHolder: savedSettings.bankAccountHolder || '', bankName: savedSettings.bankName || '', accountNumber: savedSettings.accountNumber || '', ifscCode: savedSettings.ifscCode || '', branch: savedSettings.branch || '', upiId: savedSettings.upiId || '', paymentInstructions: savedSettings.paymentInstructions || '' } : {};
   const estimate = await Estimate.create({
     estimateNumber: await nextNumber('estimate', 'EST'), clientId: client._id,
     clientSnapshot: { name: client.name, businessName: client.businessName, phone: client.phone, email: client.email, gstin: client.gstin, billingAddress: client.billingAddress, shippingAddress: client.shippingAddress },

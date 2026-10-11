@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { AppSettings as Settings } from '../models/index.js';
 import { asyncHandler, audit } from '../utils/helpers.js';
 const router = Router();
-const fields = ['bankAccountHolder','bankName','accountNumber','ifscCode','branch','upiId','paymentInstructions'];
+const fields = ['businessName','businessAddress','businessPhone','businessEmail','businessWebsite','logoDataUrl','bankAccountHolder','bankName','accountNumber','ifscCode','branch','upiId','paymentInstructions'];
 router.get('/', asyncHandler(async (_req, res) => {
   const doc = await Settings.findOne({ key: 'owner' }).lean();
   const result = Object.fromEntries(fields.map(field => [field, doc?.[field] || '']));
@@ -10,6 +10,7 @@ router.get('/', asyncHandler(async (_req, res) => {
 }));
 router.put('/', asyncHandler(async (req, res) => {
   const data = Object.fromEntries(fields.map(field => [field, String(req.body[field] ?? '').trim()]));
+  if (data.logoDataUrl && (!/^data:image\/(png|jpeg|webp);base64,/.test(data.logoDataUrl) || data.logoDataUrl.length > 1000000)) return res.status(400).json({ message: 'Logo must be a PNG, JPG or WebP image under 700 KB.' });
   if (data.ifscCode && !/^[A-Z]{4}0[A-Z0-9]{6}$/.test(data.ifscCode)) {
     return res.status(400).json({ message: 'Please enter a valid IFSC code (11 characters).' });
   }

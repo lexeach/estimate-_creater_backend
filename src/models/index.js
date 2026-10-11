@@ -132,6 +132,12 @@ const paymentSchema = new Schema({
 
 const appSettingsSchema = new Schema({
   key: { type: String, unique: true, default: 'owner' },
+  businessName: { type: String, trim: true, default: '' },
+  businessAddress: { type: String, trim: true, default: '' },
+  businessPhone: { type: String, trim: true, default: '' },
+  businessEmail: { type: String, trim: true, lowercase: true, default: '' },
+  businessWebsite: { type: String, trim: true, default: '' },
+  logoDataUrl: { type: String, default: '' },
   bankAccountHolder: { type: String, trim: true, default: '' },
   bankName: { type: String, trim: true, default: '' },
   accountNumber: { type: String, trim: true, default: '' },
