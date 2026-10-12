@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { AppSettings as Settings } from '../models/index.js';
 import { asyncHandler, audit } from '../utils/helpers.js';
 const router = Router();
-const fields = ['businessName','businessAddress','businessPhone','businessEmail','businessWebsite','logoDataUrl','bankAccountHolder','bankName','accountNumber','ifscCode','branch','upiId','paymentInstructions'];
+const fields = ['businessName','businessAddress','businessPhone','businessEmail','businessWebsite','ownerWhatsAppNumber','logoDataUrl','bankAccountHolder','bankName','accountNumber','ifscCode','branch','upiId','paymentInstructions'];
 router.get('/', asyncHandler(async (_req, res) => {
   const doc = await Settings.findOne({ key: 'owner' }).lean();
   const result = Object.fromEntries(fields.map(field => [field, doc?.[field] || '']));

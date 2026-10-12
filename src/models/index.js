@@ -144,6 +144,7 @@ const appSettingsSchema = new Schema({
   businessPhone: { type: String, trim: true, default: '' },
   businessEmail: { type: String, trim: true, lowercase: true, default: '' },
   businessWebsite: { type: String, trim: true, default: '' },
+  ownerWhatsAppNumber: { type: String, trim: true, default: '' },
   logoDataUrl: { type: String, default: '' },
   bankAccountHolder: { type: String, trim: true, default: '' },
   bankName: { type: String, trim: true, default: '' },
