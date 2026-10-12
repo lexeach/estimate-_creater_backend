@@ -13,14 +13,19 @@ function deriveMasterStatus(order) {
 router.get('/', asyncHandler(async (req, res) => {
   const filter = {};
   if (req.query.status) filter.status = req.query.status;
-  res.json(await MasterOrder.find(filter).sort({ createdAt: -1 }).limit(500).lean());
+  const orders = await MasterOrder.find(filter).sort({ createdAt: -1 }).limit(500).lean();
+  const ids = orders.map(o => o._id);
+  const paidRows = ids.length ? await Payment.aggregate([{ $match: { masterOrderId: { $in: ids } } }, { $group: { _id: '$masterOrderId', total: { $sum: '$amount' } } }]) : [];
+  const paidMap = new Map(paidRows.map(p => [String(p._id), Number(p.total || 0)]));
+  res.json(orders.map(o => { const paidTotal = Math.round((paidMap.get(String(o._id)) || 0) * 100) / 100; const balanceDue = Math.round((o.grandTotal - paidTotal) * 100) / 100; return { ...o, paidTotal, balanceDue, paymentStatus: paidTotal >= o.grandTotal - 0.01 ? 'Paid' : paidTotal > 0 ? 'Partially Paid' : 'Pending' }; }));
 }));
 router.get('/:id', asyncHandler(async (req, res) => {
   const doc = await MasterOrder.findById(req.params.id).lean();
   if (!doc) return res.status(404).json({ message: 'Order not found.' });
   const payments = await Payment.find({ masterOrderId: doc._id }).sort({ paymentDate: -1 }).lean();
   const paid = payments.reduce((sum, p) => sum + p.amount, 0);
-  res.json({ ...doc, payments, paidTotal: Math.round(paid * 100) / 100, balanceDue: Math.round((doc.grandTotal - paid) * 100) / 100 });
+  const paidTotal = Math.round(paid * 100) / 100;
+  res.json({ ...doc, payments, paidTotal, balanceDue: Math.round((doc.grandTotal - paid) * 100) / 100, paymentStatus: paidTotal >= doc.grandTotal - 0.01 ? 'Paid' : paidTotal > 0 ? 'Partially Paid' : 'Pending' });
 }));
 router.patch('/:id/company-orders/:companyOrderId/status', asyncHandler(async (req, res) => {
   if (!companyStatuses.includes(req.body.status)) return res.status(400).json({ message: 'Invalid company order status.' });
@@ -50,7 +55,10 @@ router.post('/:id/payments', asyncHandler(async (req, res) => {
   if (!order) return res.status(404).json({ message: 'Order not found.' });
   const amount = Number(req.body.amount);
   if (!Number.isFinite(amount) || amount <= 0) return res.status(400).json({ message: 'Payment amount must be greater than zero.' });
+  const alreadyPaid = await Payment.aggregate([{ $match: { masterOrderId: order._id } }, { $group: { _id: null, total: { $sum: '$amount' } } }]);
+  if (Number(alreadyPaid[0]?.total || 0) + amount > order.grandTotal + 0.01) return res.status(400).json({ message: 'Payment exceeds the remaining balance.' });
   const payment = await Payment.create({ masterOrderId: order._id, amount, paymentDate: req.body.paymentDate || new Date(), paymentMode: req.body.paymentMode || 'UPI', reference: String(req.body.reference || ''), notes: String(req.body.notes || '') });
+  const paidNow = Number(alreadyPaid[0]?.total || 0) + amount; order.paymentStatus = paidNow >= order.grandTotal - 0.01 ? 'Paid' : 'Partially Paid'; await order.save();
   await audit('payment-recorded', 'payment', payment._id, { orderId: order._id, amount });
   res.status(201).json(payment);
 }));

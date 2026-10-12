@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import crypto from 'node:crypto';
 import { Estimate, Client, Company, Product, MasterOrder, AppSettings } from '../models/index.js';
 import { asyncHandler, audit, calculateItem, money, nextNumber } from '../utils/helpers.js';
 const router = Router();
@@ -50,7 +51,7 @@ router.post('/', asyncHandler(async (req, res) => {
   const savedSettings = await AppSettings.findOne({ key: 'owner' }).lean();
   const bankDetails = savedSettings ? { businessName: savedSettings.businessName || '', businessAddress: savedSettings.businessAddress || '', businessPhone: savedSettings.businessPhone || '', businessEmail: savedSettings.businessEmail || '', businessWebsite: savedSettings.businessWebsite || '', logoDataUrl: savedSettings.logoDataUrl || '', bankAccountHolder: savedSettings.bankAccountHolder || '', bankName: savedSettings.bankName || '', accountNumber: savedSettings.accountNumber || '', ifscCode: savedSettings.ifscCode || '', branch: savedSettings.branch || '', upiId: savedSettings.upiId || '', paymentInstructions: savedSettings.paymentInstructions || '' } : {};
   const estimate = await Estimate.create({
-    estimateNumber: await nextNumber('estimate', 'EST'), clientId: client._id,
+    estimateNumber: await nextNumber('estimate', 'EST'), paymentToken: crypto.randomBytes(24).toString('hex'), paymentStatus: 'Pending', clientId: client._id,
     clientSnapshot: { name: client.name, businessName: client.businessName, phone: client.phone, email: client.email, gstin: client.gstin, billingAddress: client.billingAddress, shippingAddress: client.shippingAddress },
     items, subtotal, discountTotal, taxTotal, additionalCharges, grandTotal,
     notes: String(req.body.notes || ''), terms: String(req.body.terms || ''), bankDetails, validUntil: req.body.validUntil || null,

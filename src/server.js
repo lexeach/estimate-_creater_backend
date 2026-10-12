@@ -12,6 +12,7 @@ import estimateRoutes from './routes/estimates.js';
 import orderRoutes from './routes/orders.js';
 import dashboardRoutes from './routes/dashboard.js';
 import settingsRoutes from './routes/settings.js';
+import paymentRoutes, { razorpayWebhook } from './routes/payments.js';
 
 const app = express();
 app.set('trust proxy', 1);
@@ -21,9 +22,12 @@ app.use(cors({ origin(origin, callback) {
   if (!origin || allowedOrigins.includes(origin.replace(/\/$/, '')) || (process.env.NODE_ENV !== 'production' && /^http:\/\/localhost(:\d+)?$/.test(origin))) return callback(null, true);
   return callback(new Error('Origin not allowed by CORS.'));
 }, credentials: false }));
+// Razorpay webhook must receive the untouched raw request body for signature verification.
+app.post('/api/payments/webhook', express.raw({ type: 'application/json', limit: '1mb' }), razorpayWebhook);
 app.use(express.json({ limit: '2mb' }));
 app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 app.get('/health', (_req, res) => res.json({ status: 'ok', service: 'multi-company-sales-api', timestamp: new Date().toISOString() }));
+app.use('/api/payments', rateLimit({ windowMs: 15 * 60 * 1000, limit: 60, standardHeaders: true, legacyHeaders: false }), paymentRoutes);
 app.use('/api/auth', rateLimit({ windowMs: 15 * 60 * 1000, limit: 30, standardHeaders: true, legacyHeaders: false }), authRoutes);
 app.use('/api', requireAuth);
 app.use('/api', catalogRoutes);

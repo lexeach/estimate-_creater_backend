@@ -73,7 +73,9 @@ const estimateSchema = new Schema({
   validUntil: { type: Date, default: null },
   status: { type: String, enum: ['Draft', 'Sent', 'Accepted', 'Rejected', 'Expired', 'Converted'], default: 'Draft', index: true },
   revision: { type: Number, default: 1 },
-  convertedOrderId: { type: Schema.Types.ObjectId, ref: 'MasterOrder', default: null }
+  convertedOrderId: { type: Schema.Types.ObjectId, ref: 'MasterOrder', default: null },
+  paymentToken: { type: String, unique: true, sparse: true },
+  paymentStatus: { type: String, enum: ['Pending','Partially Paid','Paid'], default: 'Pending' }
 }, options);
 
 const companyOrderItemSchema = new Schema({
@@ -116,6 +118,7 @@ const masterOrderSchema = new Schema({
   taxTotal: { type: Number, default: 0 },
   additionalCharges: { type: Number, default: 0 },
   grandTotal: { type: Number, required: true },
+  paymentStatus: { type: String, enum: ['Pending','Partially Paid','Paid'], default: 'Pending', index: true },
   status: { type: String, enum: ['Booked', 'Processing', 'Partially Completed', 'Completed', 'Cancelled'], default: 'Booked', index: true },
   notes: { type: String, default: '' }
 }, options);
@@ -126,8 +129,12 @@ const paymentSchema = new Schema({
   paymentDate: { type: Date, default: Date.now },
   paymentMode: { type: String, enum: ['Cash', 'UPI', 'Bank Transfer', 'Cheque', 'Card', 'Other'], default: 'UPI' },
   reference: { type: String, trim: true, default: '' },
-  notes: { type: String, default: '' }
+  notes: { type: String, default: '' },
+  gateway: { type: String, default: 'manual' },
+  razorpayOrderId: { type: String, default: '', index: true },
+  razorpayPaymentId: { type: String, sparse: true }
 }, options);
+paymentSchema.index({ razorpayPaymentId: 1 }, { unique: true, sparse: true });
 
 
 const appSettingsSchema = new Schema({
