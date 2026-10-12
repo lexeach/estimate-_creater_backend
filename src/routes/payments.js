@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import Razorpay from 'razorpay';
 import { Estimate, MasterOrder, Payment, Company, Counter } from '../models/index.js';
 import { asyncHandler, audit, money, nextNumber } from '../utils/helpers.js';
+import { notifySuccessfulPayment } from '../utils/paymentNotifications.js';
 
 const router = Router();
 const razorpay = () => {
@@ -64,6 +65,14 @@ async function recordCapturedPayment({ estimate, orderId, razorpayOrderId, razor
   order.paymentStatus = paymentState(order.grandTotal, paidTotal); await order.save();
   if (estimate) { estimate.paymentStatus = order.paymentStatus; await estimate.save(); }
   await audit('razorpay-payment-captured', 'payment', payment._id, { orderId: order._id, amount, razorpayPaymentId });
+  // Notify client, owner, and each supplier company only for the first successful insert.
+  // Email failures are logged and do not invalidate the already-verified payment.
+  try {
+    const paidAfter = money(paidTotal);
+    await notifySuccessfulPayment({ estimate: estimate || await Estimate.findById(order.estimateId), order, payment, paidTotal: paidAfter, balanceDue: money(Math.max(0, order.grandTotal - paidAfter)) });
+  } catch (emailError) {
+    console.error('Payment saved but notification processing failed:', emailError.message);
+  }
   return { payment, order, duplicate: false };
 }
 
