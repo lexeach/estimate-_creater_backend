@@ -1,19 +1,41 @@
-import nodemailer from 'nodemailer';
 import { AppSettings } from '../models/index.js';
 
-let cachedTransporter = null;
-function getTransporter() {
-  const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS } = process.env;
-  if (!SMTP_HOST || !SMTP_PORT || !SMTP_USER || !SMTP_PASS) return null;
-  if (!cachedTransporter) {
-    cachedTransporter = nodemailer.createTransport({
-      host: SMTP_HOST,
-      port: Number(SMTP_PORT),
-      secure: String(process.env.SMTP_SECURE || '').toLowerCase() === 'true' || Number(SMTP_PORT) === 465,
-      auth: { user: SMTP_USER, pass: SMTP_PASS }
-    });
+const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+async function sendEmail({ from, to, subject, html }) {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) throw new Error('RESEND_API_KEY is not configured');
+  let lastError;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const response = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ from, to: [to], subject, html }),
+        signal: AbortSignal.timeout(20000)
+      });
+      const responseText = await response.text();
+      let data = {};
+      try { data = responseText ? JSON.parse(responseText) : {}; } catch {}
+      if (!response.ok) {
+        const detail = data.message || data.name || responseText || `HTTP ${response.status}`;
+        const error = new Error(`Resend API ${response.status}: ${detail}`);
+        // Retry transient server/rate-limit errors; don't retry invalid requests or credentials.
+        if (response.status < 500 && response.status !== 429) throw error;
+        lastError = error;
+      } else {
+        return data;
+      }
+    } catch (error) {
+      lastError = error;
+      if (/Resend API 4\d\d:/.test(error.message) && !/Resend API 429:/.test(error.message)) throw error;
+    }
+    if (attempt < 3) await wait(500 * (2 ** (attempt - 1)));
   }
-  return cachedTransporter;
+  throw lastError || new Error('Resend email request failed after retries');
 }
 const inr = value => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(Number(value || 0));
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
@@ -23,13 +45,12 @@ function emailHtml({ heading, intro, rows = [], footer = '' }) {
 
 // Called only after a new captured payment has been saved. Email failures never roll back a verified payment.
 export async function notifySuccessfulPayment({ estimate, order, payment, paidTotal, balanceDue }) {
-  const transporter = getTransporter();
-  if (!transporter) {
-    console.warn('Payment saved, but email notifications are not configured. Set SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS and SMTP_FROM.');
+  if (!process.env.RESEND_API_KEY || !process.env.EMAIL_FROM) {
+    console.warn('Payment saved, but email notifications are not configured. Set RESEND_API_KEY and EMAIL_FROM on Render.');
     return { sent: 0, skipped: true };
   }
   const settings = await AppSettings.findOne({ key: 'owner' }).lean().catch(() => null);
-  const from = process.env.SMTP_FROM || settings?.businessEmail || process.env.OWNER_EMAIL || process.env.SMTP_USER;
+  const from = process.env.EMAIL_FROM;
   const estimateNumber = estimate?.estimateNumber || String(order?.estimateId || '');
   const orderNumber = order?.orderNumber || 'Pending';
   const paymentDate = new Date(payment.paymentDate || Date.now()).toLocaleString('en-IN', { timeZone: process.env.EMAIL_TIMEZONE || 'Asia/Kolkata' });
@@ -42,10 +63,10 @@ export async function notifySuccessfulPayment({ estimate, order, payment, paidTo
   const tasks = [];
   const clientEmail = estimate?.clientSnapshot?.email || order?.clientSnapshot?.email;
   const clientName = estimate?.clientSnapshot?.name || order?.clientSnapshot?.name || 'Customer';
-  if (clientEmail) tasks.push(transporter.sendMail({ from, to: clientEmail, subject: `Payment received — ${estimateNumber}`, html: emailHtml({ heading: 'Payment receipt', intro: `Hello ${clientName}, your online payment has been verified successfully. Thank you.`, rows: commonRows, footer: 'This is an automated payment confirmation. Please retain it for your records.' }) }));
+  if (clientEmail) tasks.push(sendEmail({ from, to: clientEmail, subject: `Payment received — ${estimateNumber}`, html: emailHtml({ heading: 'Payment receipt', intro: `Hello ${clientName}, your online payment has been verified successfully. Thank you.`, rows: commonRows, footer: 'This is an automated payment confirmation. Please retain it for your records.' }) }));
 
   const ownerEmail = settings?.businessEmail || process.env.OWNER_EMAIL;
-  if (ownerEmail) tasks.push(transporter.sendMail({ from, to: ownerEmail, subject: `Payment received: ${inr(payment.amount)} — ${orderNumber}`, html: emailHtml({ heading: 'Payment notification', intro: `A client payment has been verified and recorded in SalesDesk. Client: ${clientName}.`, rows: [...commonRows, ['Client email', clientEmail || 'Not provided']] }) }));
+  if (ownerEmail) tasks.push(sendEmail({ from, to: ownerEmail, subject: `Payment received: ${inr(payment.amount)} — ${orderNumber}`, html: emailHtml({ heading: 'Payment notification', intro: `A client payment has been verified and recorded in SalesDesk. Client: ${clientName}.`, rows: [...commonRows, ['Client email', clientEmail || 'Not provided']] }) }));
 
   for (const companyOrder of (order?.companyOrders || [])) {
     const to = companyOrder.companySnapshot?.email;
@@ -55,7 +76,7 @@ export async function notifySuccessfulPayment({ estimate, order, payment, paidTo
       ['Your company order', companyOrder.companyOrderNumber], ['Your order value', inr(companyOrder.total)],
       ['Client payment status', order?.paymentStatus || 'Paid'], ['Supplier order status', companyOrder.status || 'Pending']
     ];
-    tasks.push(transporter.sendMail({ from, to, subject: `Client payment confirmed — ${companyOrder.companyOrderNumber}`, html: emailHtml({ heading: 'Client payment confirmed', intro: `A client payment has been verified for an order containing products supplied by ${companyOrder.companyName}. Please review your company order in the usual workflow.`, rows: companyRows, footer: 'This notification confirms payment receipt for the overall client order; it is not a remittance advice to the supplier.' }) }));
+    tasks.push(sendEmail({ from, to, subject: `Client payment confirmed — ${companyOrder.companyOrderNumber}`, html: emailHtml({ heading: 'Client payment confirmed', intro: `A client payment has been verified for an order containing products supplied by ${companyOrder.companyName}. Please review your company order in the usual workflow.`, rows: companyRows, footer: 'This notification confirms payment receipt for the overall client order; it is not a remittance advice to the supplier.' }) }));
   }
   const results = await Promise.allSettled(tasks);
   const sent = results.filter(r => r.status === 'fulfilled').length;
